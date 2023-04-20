@@ -34,7 +34,7 @@ for i = 1:1000
     Yperm(:, i) = Y(randperm(nitems), :);
     modperm(i) = modperm(i).train(X, Yperm(:, i));
 end
-bperm = [modperm.X]; % Weights are stored in X internally
+bperm = cell2mat(arrayfun(@(x) x.getWeights(), modperm, 'UniformOutput', false));
 count = sum(bperm ~=0, 2);
 avgmag = mean(abs(bperm), 2);
 
