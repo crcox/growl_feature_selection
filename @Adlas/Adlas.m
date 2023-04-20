@@ -25,13 +25,10 @@ classdef Adlas
         ModelHasBiasUnit
         lambda
         lambda1
-        EMPTY = 0;
         AxPrev
         tPrev
         Aprods
         s % RandStream('mt19937ar','Seed',0)
-        nitems  % size(A,1)
-        nvoxels % size(A,2)
         num_tasks
         r % size(B,2)
         L % Lipschitz constant
@@ -42,67 +39,40 @@ classdef Adlas
     end
 
     methods
-        function obj = Adlas(sizeA,sizeB,LambdaSequence,trainingFilter,ModelHasBiasUnit,opts)
-            if (nargin == 0)
-                obj.EMPTY = 1;
-                return
+        function obj = Adlas(LambdaSequence, trainingFilter, opts)
+            arguments
+                LambdaSequence (:,1) double {mustBeNonnegative, mustBeNonincreasing}
+                trainingFilter (:,1) logical {mustBeNumericOrLogical}
+                opts.bias (1,1) logical {mustBeScalarOrEmpty, mustBeNumericOrLogical} = true;
+                opts.xInit (:,:) double {mustBeNumeric} = [];
             end
-            if (nargin <  4), opts = struct(); end
-            obj.nitems = sizeA(1);
-            obj.nvoxels = sizeA(2);
-            obj.r = sizeB(2);
+
             obj.s = RandStream('mt19937ar','Seed',0);
             obj.L = 1;
             obj.num_tasks = 1;
-            obj.ModelHasBiasUnit = ModelHasBiasUnit;
-            % Ensure that lambda is non-increasing
-            if ((length(LambdaSequence) > 1) && any(LambdaSequence(2:end) > LambdaSequence(1:end-1)))
-                error('Lambda must be non-increasing.');
-            end
-            if (LambdaSequence(end) < 0)
-                error('Lambda must be nonnegative');
-            elseif (LambdaSequence(1) == 0)
-                error('Lambda must have at least one nonnegative entry.');
-            end
+            obj.ModelHasBiasUnit = opts.bias;
             obj.LambdaSequence = LambdaSequence;
-            obj.lambda = opts.lambda;
-            obj.lambda1 = opts.lambda1;
-            if isempty(trainingFilter)
-                obj.trainingFilter = true(obj.nitems, 1);
-            elseif numel(trainingFilter) ~= obj.nitems
-                error('The trainingFilter must have as many elements as there are targets (i.e., examples in the dataset).');
-            else
-                obj.trainingFilter = trainingFilter;
-            end
-            fn = fieldnames(opts);
-            for i = 1:numel(fn)
-                obj.(fn{i}) = opts.(fn{i});
-            end
+            obj.lambda = min(LambdaSequence);
+            obj.lambda1 = range(LambdaSequence);
+            obj.trainingFilter = trainingFilter;
 
-            if ~isfield(opts, 'xInit') || (isempty(opts.xInit))
-                obj.X = zeros(obj.nvoxels,obj.r);
+            if isfield(opts, 'xInit') && ~isempty(opts.xInit)
+                obj.X = opts.xInit;
             end
-            obj.EMPTY = 0;
         end
 
-        function obj = train(obj, A,B,opts)
-            fn = fieldnames(opts);
-            for i = 1:numel(fn)
-                obj.(fn{i}) = opts.(fn{i});
-            end
+        function obj = train(obj, A,B)
             obj = Adlas1(obj,A,B);
         end
 
         function obj = test(obj,A,B)
+            assert(~isempty(obj.X), '`obj.X is empty---there are no weights! Did you `train` the model?')
             x = obj.X;
             obj.Cz = A*x;
             [a,b] = obj.getTestingData(A,B);
             obj.testError = nrsa_loss(b,a*x);
             [a,b] = obj.getTrainingData(A,B);
             obj.trainingError = nrsa_loss(b,a*x);
-        end
-        function x = isempty(obj)
-            x = all([obj.EMPTY] == 1);
         end
 
         function [W,nzvox,nvox] = getWeights(obj, varargin)
@@ -127,6 +97,7 @@ classdef Adlas
         function y = getTarget(obj,B,varargin)
             p = inputParser();
             addRequired(p, 'obj');
+            addRequired(p, 'B');
             addOptional(p, 'subjects', 1, @isnumeric);
             addParameter(p, 'subset', 'all', @ischar);
             addParameter(p, 'forceCell', false, @(x) islogical(x) || x==1 || x==0);
@@ -313,7 +284,25 @@ classdef Adlas
     end
 end
 
-function obj = Adlas1(obj,A,B,verbosity)
+function obj = Adlas1(obj,A,B,opts)
+% ADLAS1 - GrOWL optimization function
+%
+% Inputs:
+%    obj - An instance of the Adlas class
+%    A - A matrix of data, examples x features
+%    B - A matrix of targets (an embedding), examples x dimensions
+%    verbosity - A non-negative whole value indicating how much output you
+%    want printed (0 is least, 2 is most output)
+%
+% Outputs:
+%    obj - An updated instance of the Adlas class with fitted parameters
+%
+    arguments
+        obj (1,1) Adlas
+        A (:,:) double {mustBeNumeric}
+        B (:,:) double {mustBeNumeric}
+        opts.verbosity (1,1) double {mustBeInteger, mustBeInRange(opts.verbosity, 0, 2)} = 0;
+    end
     % Constants for exit status
     STATUS_RUNNING    = 0;
     STATUS_OPTIMAL    = 1;
@@ -321,11 +310,14 @@ function obj = Adlas1(obj,A,B,verbosity)
     STATUS_ALLZERO    = 3;
     STATUS_MSG = {'Optimal','Iteration limit reached','All weights set to zero'};
 
-    if nargin < 4
-        verbosity = 0;
-    end
     % Initialize parameters
-    X       = obj.X; % Weights
+    if isempty(obj.X)
+        nfeatures = size(A, 2);
+        ndim = size(B, 2);
+        X = zeros(nfeatures, ndim);
+    else
+        X = obj.X; % Weights
+    end
     [A,B]   = getTrainingData(obj,A,B); 
     Ax      = A * X;
     Y       = X;
@@ -342,7 +334,7 @@ function obj = Adlas1(obj,A,B,verbosity)
         proxFunction = @(v1,v2) proxSortedL1L2(v1,v2);
     end
 
-    if (verbosity > 0)
+    if (opts.verbosity > 0)
         fprintf(fid,'%5s  %9s %9s  %9s  %9s\n','Iter','||r||_F','Gap','Infeas.','Rel. gap');
     end
 
@@ -387,7 +379,7 @@ function obj = Adlas1(obj,A,B,verbosity)
             end
 
             % Format string
-            if (verbosity > 0)
+            if (opts.verbosity > 0)
                 str = sprintf(' %9.2e  %9.2e  %9.2e',objPrimal - objDual, infeas/obj.LambdaSequence(1), abs(objPrimal - objDual) / max(1,objPrimal));
             end
 
@@ -401,9 +393,9 @@ function obj = Adlas1(obj,A,B,verbosity)
             str = '';
         end
 
-        if (verbosity > 0)
-            if ((verbosity == 2) || ...
-                    ((verbosity == 1) && (mod(obj.iter,obj.optimIter) == 0)))
+        if (opts.verbosity > 0)
+            if ((opts.verbosity == 2) || ...
+                    ((opts.verbosity == 1) && (mod(obj.iter,obj.optimIter) == 0)))
                 fprintf(fid,'%5d  %9.2e%s\n', obj.iter,f,str);
             end
         end
@@ -416,7 +408,7 @@ function obj = Adlas1(obj,A,B,verbosity)
         end
 
         if (status ~= 0)
-            if verbosity > 0
+            if opts.verbosity > 0
                 fprintf(fid,'Exiting with status %d -- %s\n', status, STATUS_MSG{status});
             end
             break;
@@ -480,3 +472,10 @@ function x = proxL1L2(Y,lambda)
     x = xtmp.*repmat(max(sqrt(sum(tmp.^2,2))-lambda,0),1,r);
 end
 
+function mustBeNonincreasing(x)
+    if ((length(x) > 1) && any(x(2:end) > x(1:end-1)))
+        eidType = 'mustBeNonincreasing:notNonincreasing';
+        msgType = 'Input must be a monotonically decreasing (i.e., non-increasing) sequence.';
+        throwAsCaller(MException(eidType, msgType));
+    end
+end
