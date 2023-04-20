@@ -39,12 +39,15 @@ function x = lambdaseq(lambda, lambda1, nfeatures, type)
 % Other m-files required: none
 % Subfunctions: none
 % MAT-files required: none
-%
+
 % Created 19-April-2023 by Chris Cox
 % Derived from logic in WISC_MVPA/src/learn_encoding.m
-    assert(isscalar(lambda) && lambda >= 0, '`lambda` must be a positive scalar.');
-    assert(isscalar(lambda1) && lambda1 >= 0, '`lambda1` must be a positive scalar.');
-    assert(isscalar(nfeatures) && nfeatures > 0 && nfeatures == fix(nfeatures), '`nfeatures` must be a positive whole-valued scalar.');
+    arguments
+        lambda (1,1) double {mustBeNonnegative}
+        lambda1 (1,1) double {mustBeNonnegative}
+        nfeatures (1,1) double {mustBeNonnegative, mustBeInteger}
+        type (1,1) string {mustBeTextScalar}
+    end
 
     switch lower(type)
         case 'linear'
