@@ -10,7 +10,7 @@ nnoise = nfeatures - ncorsig - nuncorsig;
 %% Simulate data
 X = [mvrnorm(nitems, uniform_cormat(ncorsig, .9)), randn(nitems, nuncorsig), randn(nitems, nnoise)];
 beta = [ones(ncorsig + nuncorsig, 1); zeros(nnoise, 1)];
-noise = randn(nitems, ndim);
+noise = randn(nitems, ndim) * 10;
 Y = (X * beta) + noise;
 
 
@@ -25,16 +25,16 @@ mod = Adlas(lamseq(:), training_set, bias=true);
 mod = mod.train(X, Y);
 b = mod.getWeights();
 
-bar(b)
-
 
 %% Fit models to permuted targets
 nperm = 1000;
-Yperm = zeros(nitems, nperm);
-modperm = repmat(Adlas(lamseq(:), training_set, bias=true), 1, nperm);
+ixperm = zeros(nitems, nperm);
+lamseq_2x = reshape(repmat(lamseq, 2, 1), [], 1);
+modperm = repmat(Adlas(lamseq_2x, training_set, bias=true), 1, nperm);
 for i = 1:1000
-    Yperm(:, i) = Y(randperm(nitems), :);
-    modperm(i) = modperm(i).train(X, Yperm(:, i));
+    ixperm(:, i) = randperm(nitems);
+    Xko = [X, X(ixperm(:, i), :)];
+    modperm(i) = modperm(i).train(Xko, Y);
 end
 bperm = cell2mat(arrayfun(@(x) x.getWeights(), modperm, 'UniformOutput', false));
 count = sum(bperm ~=0, 2);
@@ -60,11 +60,11 @@ bp = bar(b, 'FaceColor', 'flat'); bp.CData = clr;
 title("Model weights fit to true target structure")
 
 subplot(1, 3, 2);
-bp = bar(count, 'FaceColor', 'flat'); bp.CData = clr;
+bp = bar(count, 'FaceColor', 'flat'); bp.CData = repmat(clr, 2, 1);
 title("Non-zero weight counts over permuted target structures")
 
 subplot(1, 3, 3);
-bp = bar(avgmag, 'FaceColor', 'flat'); bp.CData = clr;
+bp = bar(avgmag, 'FaceColor', 'flat'); bp.CData = repmat(clr, 2, 1);
 title("Average weight magnitude over permuted target structures")
 
-exportgraphics(f,'growl_features_permutation_cor90_corfeats20_lamseq-linear_500_0.png','Resolution',150);
+%exportgraphics(f,'growl_features_permutation_cor90_corfeats20_lamseq-linear_500_0.png','Resolution',150);
