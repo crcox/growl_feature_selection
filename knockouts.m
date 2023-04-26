@@ -4,13 +4,14 @@ nfeatures = 100;
 ndim = 1;
 ncorsig = 20;
 nuncorsig = 5;
-nnoise = nfeatures - ncorsig - nuncorsig;
+ncornoise = 20;
+nuncornoise = nfeatures - ncorsig - nuncorsig - ncornoise;
 
 
 %% Simulate data
-X = [mvrnorm(nitems, uniform_cormat(ncorsig, .9)), randn(nitems, nuncorsig), randn(nitems, nnoise)];
-beta = [ones(ncorsig + nuncorsig, 1); zeros(nnoise, 1)];
-noise = randn(nitems, ndim) * 10;
+X = [mvrnorm(nitems, uniform_cormat(ncorsig, .9)), randn(nitems, nuncorsig), mvrnorm(nitems, uniform_cormat(ncornoise, .9)), randn(nitems, nuncornoise)];
+beta = [ones(ncorsig + nuncorsig, 1); zeros(ncornoise, 1); zeros(nuncornoise, 1)];
+noise = randn(nitems, ndim) * 5;
 Y = (X * beta) + noise;
 
 
@@ -45,12 +46,14 @@ avgmag = mean(abs(bperm), 2);
 color_map = struct( ...
     'correlated_features', [223 145 167], ...
     'uncorrelated_features', [178 198 65], ...
-    'noise_features', [134 156 211] ...
+    'correlated_noise', [178 9 65], ...
+    'uncorrelated_noise', [134 156 211] ...
 );
 clr = [
     repmat(color_map.correlated_features, ncorsig, 1);
-    repmat(color_map.uncorrelated_features, nuncorsig, 1); 
-    repmat(color_map.noise_features, nnoise, 1);
+    repmat(color_map.uncorrelated_features, nuncorsig, 1);
+    repmat(color_map.correlated_noise, ncornoise, 1);
+    repmat(color_map.uncorrelated_noise, nuncornoise, 1);
 ] / 255;
 
 
